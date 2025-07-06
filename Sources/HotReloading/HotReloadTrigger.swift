@@ -6,9 +6,15 @@ public enum HotReloadTrigger {
     /// Trigger a hot reload by touching the trigger file
     public static func trigger() {
         #if DEBUG
-        let triggerFile = FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent(".hotreload")
+        // Use iOS-compatible home directory method
+        let homeDirectory: URL
+        #if os(iOS) || os(watchOS) || os(tvOS)
+        homeDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        #else
+        homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        #endif
+        
+        let triggerFile = homeDirectory.appendingPathComponent(".hotreload")
         
         // Update the modification date
         let now = Date()
@@ -26,9 +32,9 @@ public enum HotReloadTrigger {
         #endif
     }
     
-    /// Create a shell script for easy command-line triggering
+    /// Create a shell script for easy command-line triggering (macOS only)
     public static func createShellScript(at path: String? = nil) {
-        #if DEBUG
+        #if DEBUG && os(macOS)
         let scriptContent = """
         #!/bin/bash
         # HotReloading Trigger Script
@@ -53,12 +59,14 @@ public enum HotReloadTrigger {
         } catch {
             print("❌ Failed to create script: \(error)")
         }
+        #else
+        print("💡 Shell scripts are only available on macOS")
         #endif
     }
     
-    /// Create a file watcher script that automatically triggers reloads
+    /// Create a file watcher script that automatically triggers reloads (macOS only)
     public static func createAutoWatchScript() {
-        #if DEBUG
+        #if DEBUG && os(macOS)
         let scriptContent = """
         #!/bin/bash
         # Auto HotReloading Script
@@ -113,6 +121,8 @@ public enum HotReloadTrigger {
         } catch {
             print("❌ Failed to create auto-watch script: \(error)")
         }
+        #else
+        print("💡 Auto-watch scripts are only available on macOS")
         #endif
     }
     
@@ -121,10 +131,15 @@ public enum HotReloadTrigger {
         #if DEBUG
         print("🔥 Setting up HotReloading environment...")
         
-        // Create trigger file
-        let triggerFile = FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent(".hotreload")
+        // Use iOS-compatible home directory method
+        let homeDirectory: URL
+        #if os(iOS) || os(watchOS) || os(tvOS)
+        homeDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        #else
+        homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        #endif
+        
+        let triggerFile = homeDirectory.appendingPathComponent(".hotreload")
         
         if !FileManager.default.fileExists(atPath: triggerFile.path) {
             let content = """
@@ -138,30 +153,32 @@ public enum HotReloadTrigger {
                 contents: content,
                 attributes: nil
             )
-            print("✅ Created trigger file: ~/.hotreload")
+            print("✅ Created trigger file: \(triggerFile.path)")
         }
         
-        // Create convenience scripts
+        // Create convenience scripts (macOS only)
+        #if os(macOS)
         createShellScript()
         createAutoWatchScript()
-        
-        // Create VS Code task
         createVSCodeTask()
+        #endif
         
         print("🎉 HotReloading environment setup complete!")
         print("")
         print("🚀 Quick Start:")
         print("1. Wrap your views: HotReloading { ContentView() }")
-        print("2. Manual trigger: touch ~/.hotreload or ./hotreload.sh")
-        print("3. Auto-watch: ./auto-hotreload.sh (requires fswatch)")
-        print("4. Triple-tap any view for quick reload")
+        print("2. Manual trigger: HotReloadTrigger.trigger()")
+        print("3. Triple-tap any view for quick reload")
+        #if os(macOS)
+        print("4. Auto-watch: ./auto-hotreload.sh (requires fswatch)")
+        #endif
         print("")
         #endif
     }
     
-    /// Create VS Code task for hot reloading
+    /// Create VS Code task for hot reloading (macOS only)
     private static func createVSCodeTask() {
-        #if DEBUG
+        #if DEBUG && os(macOS)
         let vscodeDir = FileManager.default.currentDirectoryPath + "/.vscode"
         let tasksFile = vscodeDir + "/tasks.json"
         
@@ -217,11 +234,14 @@ public enum HotReloadTrigger {
     
     /// Enable keyboard shortcuts (when possible)
     public static func enableKeyboardShortcuts() {
-        #if DEBUG && os(macOS)
-        print("⌨️  Keyboard shortcuts:")
+        #if DEBUG
+        print("⌨️  Available shortcuts:")
+        #if os(macOS)
         print("💡 Cmd+R in Xcode to rebuild")
-        print("💡 Triple-tap any view for quick reload")
         print("💡 Use VS Code task: Cmd+Shift+P → 'Hot Reload'")
+        #endif
+        print("💡 Triple-tap any view for quick reload")
+        print("💡 Use HotReloadTrigger.trigger() programmatically")
         #endif
     }
 }

@@ -22,7 +22,13 @@ final class HotReloadManager: ObservableObject {
     private var lastReloadTime = Date()
     
     private init() {
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        // Use iOS-compatible home directory method
+        let homeDirectory: URL
+        #if os(iOS) || os(watchOS) || os(tvOS)
+        homeDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        #else
+        homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        #endif
         
         // Primary trigger file
         self.triggerFile = homeDirectory
@@ -33,7 +39,7 @@ final class HotReloadManager: ObservableObject {
         self.watchPaths = [
             triggerFile,
             FileManager.default.currentDirectoryPath,
-            homeDirectory.appendingPathComponent("Documents").path
+            NSTemporaryDirectory()
         ]
         
         setupTriggerFile()
@@ -44,7 +50,7 @@ final class HotReloadManager: ObservableObject {
     func startWatching() {
         guard !isWatching else { return }
         
-        #if DEBUG && (targetEnvironment(simulator) || os(macOS))
+        #if DEBUG
         isWatching = true
         startTriggerFileWatcher()
         
@@ -57,15 +63,20 @@ final class HotReloadManager: ObservableObject {
     func startAutoWatching() {
         guard !isAutoWatching else { return }
         
-        #if DEBUG && (targetEnvironment(simulator) || os(macOS))
+        #if DEBUG
         isAutoWatching = true
         startWatching() // Also enable manual triggers
         
-        // Start automatic source file watching
+        // Start automatic source file watching (macOS only)
+        #if os(macOS)
         startSourceFileWatcher()
-        
         print("🔥 HotReloading: Auto-watch mode active")
         print("💡 Changes will be detected automatically!")
+        #else
+        print("🔥 HotReloading: Auto-watch not available on iOS")
+        print("💡 Use manual triggers instead")
+        #endif
+        
         print("💡 Manual trigger: touch ~/.hotreload")
         #endif
     }
@@ -179,30 +190,16 @@ final class HotReloadManager: ObservableObject {
     }
     
     private func startSourceFileWatcher() {
-        // Watch for Swift file changes in the project
+        // Watch for Swift file changes in the project (macOS only)
+        #if os(macOS)
         let projectPath = findProjectPath()
         
-        #if os(macOS)
         autoWatcher = AutoFileWatcher(projectPath: projectPath) { [weak self] in
             Task { @MainActor in
                 self?.triggerReload()
             }
         }
         autoWatcher?.start()
-        #else
-        // Fallback to directory watching
-        startDirectoryWatcher()
-        #endif
-    }
-    
-    private func startDirectoryWatcher() {
-        #if os(macOS)
-        fileWatcher = FSEventWatcher(paths: watchPaths) { [weak self] in
-            Task { @MainActor in
-                self?.triggerReload()
-            }
-        }
-        fileWatcher?.start()
         #endif
     }
     
@@ -230,7 +227,10 @@ protocol FileWatcher {
     func stop()
 }
 
-// MARK: - Auto File Watcher (Watches Swift files)
+// MARK: - Auto File Watcher (macOS only)
+
+#if os(macOS)
+import CoreServices
 
 class AutoFileWatcher: FileWatcher {
     private let projectPath: String
@@ -244,7 +244,6 @@ class AutoFileWatcher: FileWatcher {
     }
     
     func start() {
-        #if os(macOS)
         let pathsToWatch = [projectPath] as CFArray
         
         var streamContext = FSEventStreamContext()
@@ -280,7 +279,6 @@ class AutoFileWatcher: FileWatcher {
             FSEventStreamStart(stream)
             print("🔥 Auto-watching Swift files in: \(projectPath)")
         }
-        #endif
     }
     
     private func handleFileEvent(paths: [UnsafeMutablePointer<CChar>?], flags: [FSEventStreamEventFlags]) {
@@ -305,25 +303,18 @@ class AutoFileWatcher: FileWatcher {
     }
     
     func stop() {
-        #if os(macOS)
         if let stream = eventStream {
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
             eventStream = nil
         }
-        #endif
     }
     
     deinit {
         stop()
     }
 }
-
-// MARK: - FSEvents Watcher (macOS only)
-
-#if os(macOS)
-import CoreServices
 
 class FSEventWatcher: FileWatcher {
     private let paths: [String]
@@ -384,4 +375,22 @@ class FSEventWatcher: FileWatcher {
         stop()
     }
 }
+
+#else
+
+// Stub implementations for non-macOS platforms
+class AutoFileWatcher: FileWatcher {
+    init(projectPath: String, callback: @escaping () -> Void) {
+        // No-op on iOS
+    }
+    
+    func start() {
+        // No-op on iOS
+    }
+    
+    func stop() {
+        // No-op on iOS
+    }
+}
+
 #endif
